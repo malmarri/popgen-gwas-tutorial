@@ -1,0 +1,101 @@
+---
+title: "00 — Introduction & Setup"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+## What you're working with
+
+This is a **fully simulated** case/control GWAS dataset — no real genomes
+involved. It was built to behave like a real one, problems included:
+
+- **10 fake chromosomes**, 5,000 SNPs each = **50,000 SNPs total**
+- A **majority ancestry group** plus **two minority ancestry groups** mixed
+  into the raw data, with no ancestry label given to you up front
+- A handful of samples with **injected QC problems** (contamination-like
+  excess heterozygosity, poor-quality high missingness)
+- A block of SNPs with a genuine **Hardy-Weinberg violation** (simulated
+  genotyping artefact) and a block with a **failing assay** (high
+  missingness)
+- Some **real disease-associated SNPs** baked in, at a range of frequencies
+  and effect sizes — and one **decoy SNP** that will look associated purely
+  because of population stratification, until you deal with it
+
+You don't get to know which SNPs or samples are which — that's the point.
+By the end of notebook 05 you'll have found (most of) it yourself, and you
+can compare notes with the instructor's answer key afterward.
+
+## One-time setup
+
+If this is a fresh container, the dataset has already been generated for
+you (via `postCreateCommand`). Confirm the files exist:
+
+```{bash}
+ls -la data/
+```
+
+If `data/` is empty, generate it now (takes well under a minute):
+
+```{r generate-if-missing, eval=FALSE}
+source("R/simulate_toy_gwas.R")
+```
+
+## Sanity-checking the data (without peeking at the answer key)
+
+Before trusting a simulated — or any — dataset, check that it looks like
+what it's supposed to look like. Run PLINK2's allele-frequency report:
+
+```{bash}
+mkdir -p results
+plink2 --bfile data/study --freq --out results/sanity_freq
+```
+
+```{r}
+freq <- data.table::fread("results/sanity_freq.afreq")
+names(freq) <- sub("^#", "", names(freq))
+head(freq)
+```
+
+A few checks worth doing on any new dataset before you analyze it:
+
+```{r}
+# How many variants and samples did we actually get?
+bim <- data.table::fread("data/study.bim", header = FALSE)
+fam <- data.table::fread("data/study.fam", header = FALSE)
+cat("SNPs:   ", nrow(bim), "\n")
+cat("Samples:", nrow(fam), "\n")
+cat("Chromosomes present:", paste(sort(unique(bim$V1)), collapse = ", "), "\n")
+```
+
+```{r}
+# Allele frequencies should mostly land in a sensible range for common SNPs
+hist(pmin(freq$ALT_FREQS, 1 - freq$ALT_FREQS),
+     breaks = 50, main = "Minor allele frequency, all SNPs", xlab = "MAF")
+```
+
+> **Note on ALT_FREQS vs. minor allele frequency:** PLINK's `ALT_FREQS`
+> column is the frequency of *whichever allele happens to be labeled ALT*
+> in the `.bim` file — not necessarily the minor allele. Notice above that
+> we took `pmin(ALT_FREQS, 1 - ALT_FREQS)` to get the actual minor allele
+> frequency. This trips people up in real GWAS output too: always check
+> which allele a reported frequency (or later, an odds ratio) refers to.
+
+**🔧 YOUR TURN:** the phenotype column in `data/study.fam` uses PLINK's
+convention (`1` = control, `2` = case). Count how many of each are in the
+raw file below — don't worry that the numbers look a little bigger/smaller
+than "2,000 and 2,000"; you haven't done any QC yet, and this file
+deliberately still contains some samples that shouldn't be here.
+
+```{r}
+table(fam$V6)  # ___FILL_IN___: is V6 really the phenotype column? Check ?read_fam or the .fam spec if unsure.
+```
+
+## What's next
+
+`01_qc_missingness_heterozygosity.Rmd` starts the actual pipeline: sample
+QC based on missingness and heterozygosity, where you'll pick your own
+thresholds from the data rather than being handed one.

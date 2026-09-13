@@ -1,0 +1,227 @@
+# R/simulate_toy_gwas.R
+#
+# Generates the toy GWAS dataset used throughout the workshop notebooks.
+# Everything is simulated -- there is no real genetic data involved, and
+# the "chromosomes" are fake (10 of them, 5,000 SNPs each = 50,000 total).
+#
+# Run once per workshop:  Rscript R/simulate_toy_gwas.R
+# (this also happens automatically when the devcontainer is built)
+#
+# Outputs:
+#   data/study.{bed,bim,fam}                 raw study data, PRE-QC
+#   data/reference.{bed,bim,fam}             reference panel, 4 populations
+#   instructor/snp_truth.csv                 which SNPs are causal/decoy (answer key -- don't peek!)
+#   instructor/sample_truth.csv              true ancestry + injected QC problems per sample (answer key)
+
+suppressPackageStartupMessages(library(genio))
+source(file.path("R", "sim_utils.R"))
+
+set.seed(20260913)  # fixed seed -> every student gets an identical dataset
+
+## ---- Study design constants ----------------------------------------------
+N_CHR        <- 10
+SNPS_PER_CHR <- 5000
+N_SNPS       <- N_CHR * SNPS_PER_CHR  # 50,000
+
+N_CASES_TARGET    <- 2000
+N_CONTROLS_TARGET <- 2000
+
+N_BAD_MAJORITY <- 130  # extra majority-ancestry samples that should FAIL QC
+N_ANC_B        <- 250  # minority ancestry, moderate divergence
+N_ANC_C        <- 250  # minority ancestry, larger divergence
+
+FST_A <- 0.005
+FST_B <- 0.01
+FST_C <- 0.02
+
+N_REF_PER_POP <- 80    # reference panel size per population
+FST_REF_D     <- 0.20  # a 4th reference population NOT present in the study
+
+dir.create("data", showWarnings = FALSE)
+dir.create("instructor", showWarnings = FALSE)
+
+## ---- 1. SNP map + arbitrary allele labels ---------------------------------
+snp_map <- build_snp_map(N_CHR, SNPS_PER_CHR)
+alleles <- assign_alleles(N_SNPS)
+bim <- data.frame(
+  chr  = snp_map$chr,
+  id   = snp_map$id,
+  posg = 0,
+  pos  = snp_map$pos,
+  alt  = alleles$alt,
+  ref  = alleles$ref,
+  stringsAsFactors = FALSE
+)
+
+## ---- 2. Pick the 6 causal SNPs + 1 decoy SNP, one per chromosome ----------
+special_idx <- function(chrom, offset = 2500) which(bim$chr == chrom)[offset]
+
+idx_causal <- c(
+  causal_1 = special_idx(1), causal_2 = special_idx(2), causal_3 = special_idx(3),
+  causal_4 = special_idx(4), causal_5 = special_idx(5), causal_6 = special_idx(6)
+)
+idx_decoy <- c(decoy_1 = special_idx(7))
+
+causal_maf <- c(causal_1 = 0.30, causal_2 = 0.20, causal_3 = 0.15,
+                causal_4 = 0.10, causal_5 = 0.05, causal_6 = 0.02)
+causal_or  <- c(causal_1 = 1.4,  causal_2 = 1.4,  causal_3 = 1.35,
+                causal_4 = 1.4,  causal_5 = 1.4,  causal_6 = 2.3)
+log_or_causal <- log(causal_or)
+
+decoy_freq_A <- 0.05  # ancestry A and B share this frequency (no confounding there)
+decoy_freq_C <- 0.95  # ancestry C differs sharply -> drives the stratification example
+
+# chr8: block of SNPs with a genuine HWE violation (genotyping artefact)
+idx_hwe_break <- which(bim$chr == 8)[1000:1300]
+# chr9: block of SNPs with high missingness (failing assay)
+idx_snp_miss  <- which(bim$chr == 9)[1000:1200]
+# chr10 is left with no injected features at all -- a "clean null" chromosome
+
+## ---- 3. Population allele frequencies -------------------------------------
+p_anc <- runif(N_SNPS, 0.05, 0.50)  # ancestral/global frequency for ordinary SNPs
+
+p_A <- bn_pop_freq(p_anc, FST_A)
+p_B <- bn_pop_freq(p_anc, FST_B)
+p_C <- bn_pop_freq(p_anc, FST_C)
+
+# Causal SNPs: force IDENTICAL frequency across ancestries. Their signal
+# should come only from the true genotype effect, not from stratification.
+for (nm in names(idx_causal)) {
+  i <- idx_causal[[nm]]
+  p_A[i] <- causal_maf[[nm]]
+  p_B[i] <- causal_maf[[nm]]
+  p_C[i] <- causal_maf[[nm]]
+}
+
+# Decoy SNP: force a real frequency DIFFERENCE between A/B and C, no true effect.
+p_A[[idx_decoy]] <- decoy_freq_A
+p_B[[idx_decoy]] <- decoy_freq_A
+p_C[[idx_decoy]] <- decoy_freq_C
+
+## ---- 4. Majority ancestry (Ancestry A) case/control pool ------------------
+# Retrospective case-control ascertainment: simulate genotypes + a liability
+# score from the 6 causal SNPs, keep sampling batches until we have exactly
+# N_CASES_TARGET cases and N_CONTROLS_TARGET controls.
+case_pool <- list(); control_pool <- list()
+n_case_have <- 0; n_control_have <- 0
+batch <- 1
+while (n_case_have < N_CASES_TARGET || n_control_have < N_CONTROLS_TARGET) {
+  batch_n <- 1500
+  g <- sim_genotypes(batch_n, p_A)
+
+  liability <- rep(0, batch_n)  # logit(0.5) baseline
+  for (nm in names(idx_causal)) {
+    liability <- liability + log_or_causal[[nm]] * g[idx_causal[[nm]], ]
+  }
+  is_case <- rbinom(batch_n, 1, plogis(liability)) == 1
+
+  cases_here    <- which(is_case)
+  controls_here <- which(!is_case)
+
+  if (n_case_have < N_CASES_TARGET && length(cases_here) > 0) {
+    take <- head(cases_here, N_CASES_TARGET - n_case_have)
+    case_pool[[length(case_pool) + 1]] <- g[, take, drop = FALSE]
+    n_case_have <- n_case_have + length(take)
+  }
+  if (n_control_have < N_CONTROLS_TARGET && length(controls_here) > 0) {
+    take <- head(controls_here, N_CONTROLS_TARGET - n_control_have)
+    control_pool[[length(control_pool) + 1]] <- g[, take, drop = FALSE]
+    n_control_have <- n_control_have + length(take)
+  }
+  message(sprintf("  batch %d: cases %d/%d, controls %d/%d",
+                   batch, n_case_have, N_CASES_TARGET, n_control_have, N_CONTROLS_TARGET))
+  batch <- batch + 1
+  if (batch > 50) stop("Could not reach target case/control counts -- check effect sizes.")
+}
+
+geno_cases    <- do.call(cbind, case_pool)[, 1:N_CASES_TARGET, drop = FALSE]
+geno_controls <- do.call(cbind, control_pool)[, 1:N_CONTROLS_TARGET, drop = FALSE]
+geno_majority_clean  <- cbind(geno_cases, geno_controls)
+pheno_majority_clean <- c(rep(2L, N_CASES_TARGET), rep(1L, N_CONTROLS_TARGET))  # 2=case, 1=control
+
+## ---- 5. Extra majority-ancestry samples designed to FAIL QC ---------------
+g_bad <- sim_genotypes(N_BAD_MAJORITY, p_A)
+pheno_bad <- sample(c(1L, 2L), N_BAD_MAJORITY, replace = TRUE)
+
+het_bad_idx  <- seq_len(N_BAD_MAJORITY %/% 2)
+miss_bad_idx <- (N_BAD_MAJORITY %/% 2 + 1):N_BAD_MAJORITY
+g_bad <- corrupt_heterozygosity(g_bad, het_bad_idx)
+g_bad <- corrupt_sample_missingness(g_bad, miss_bad_idx)
+
+## ---- 6. Minority ancestries B and C, with uneven case/control ascertainment
+# This ascertainment imbalance, combined with the decoy SNP's real frequency
+# gap between ancestries, is what creates a population-stratification false
+# positive at decoy_1 in the naive (uncorrected) association test.
+g_ancB <- sim_genotypes(N_ANC_B, p_B)
+g_ancC <- sim_genotypes(N_ANC_C, p_C)
+pheno_ancB <- sample(c(1L, 2L), N_ANC_B, replace = TRUE, prob = c(0.85, 0.15))  # mostly controls
+pheno_ancC <- sample(c(1L, 2L), N_ANC_C, replace = TRUE, prob = c(0.15, 0.85))  # mostly cases
+
+## ---- 7. Assemble the full pre-QC "study" fileset --------------------------
+geno_study <- cbind(geno_majority_clean, g_bad, g_ancB, g_ancC)
+geno_study <- corrupt_hwe(geno_study, idx_hwe_break)
+geno_study <- corrupt_snp_missingness(geno_study, idx_snp_miss)
+
+n_study <- ncol(geno_study)
+fam_study <- data.frame(
+  fam   = sprintf("F%05d", seq_len(n_study)),
+  id    = sprintf("S%05d", seq_len(n_study)),
+  pat   = 0, mat = 0,
+  sex   = sample(1:2, n_study, replace = TRUE),
+  pheno = c(pheno_majority_clean, pheno_bad, pheno_ancB, pheno_ancC),
+  stringsAsFactors = FALSE
+)
+
+write_plink(file.path("data", "study"), X = geno_study, bim = bim, fam = fam_study)
+
+## ---- 8. Reference panel (separate individuals, identical SNP map) --------
+p_refD <- bn_pop_freq(p_anc, FST_REF_D)
+g_refA <- sim_genotypes(N_REF_PER_POP, p_A)
+g_refB <- sim_genotypes(N_REF_PER_POP, p_B)
+g_refC <- sim_genotypes(N_REF_PER_POP, p_C)
+g_refD <- sim_genotypes(N_REF_PER_POP, p_refD)
+
+geno_ref <- cbind(g_refA, g_refB, g_refC, g_refD)
+n_ref <- ncol(geno_ref)
+fam_ref <- data.frame(
+  fam   = sprintf("R%05d", seq_len(n_ref)),
+  id    = sprintf("R%05d", seq_len(n_ref)),
+  pat   = 0, mat = 0,
+  sex   = sample(1:2, n_ref, replace = TRUE),
+  pheno = -9,
+  stringsAsFactors = FALSE
+)
+write_plink(file.path("data", "reference"), X = geno_ref, bim = bim, fam = fam_ref)
+
+## ---- 9. Instructor-only truth tables (answer key -- do not share) --------
+snp_truth <- data.frame(id = bim$id, role = "neutral", stringsAsFactors = FALSE)
+snp_truth$role[idx_causal] <- names(idx_causal)
+snp_truth$role[idx_decoy]  <- names(idx_decoy)
+snp_truth$target_maf <- NA_real_
+snp_truth$target_or  <- NA_real_
+snp_truth$target_maf[idx_causal] <- causal_maf
+snp_truth$target_or[idx_causal]  <- causal_or
+snp_truth$target_or[idx_decoy]   <- 1.0
+write.csv(snp_truth, file.path("instructor", "snp_truth.csv"), row.names = FALSE)
+
+sample_truth <- data.frame(
+  fam = fam_study$fam, id = fam_study$id,
+  true_ancestry = c(
+    rep("Ancestry_A", ncol(geno_majority_clean) + N_BAD_MAJORITY),
+    rep("Ancestry_B", N_ANC_B),
+    rep("Ancestry_C", N_ANC_C)
+  ),
+  qc_flag = c(
+    rep("clean", ncol(geno_majority_clean)),
+    rep("het_outlier", length(het_bad_idx)),
+    rep("high_missing", length(miss_bad_idx)),
+    rep("clean_but_ancestry_outlier", N_ANC_B + N_ANC_C)
+  ),
+  stringsAsFactors = FALSE
+)
+write.csv(sample_truth, file.path("instructor", "sample_truth.csv"), row.names = FALSE)
+
+message("Done.")
+message("  data/study.{bed,bim,fam}       -- ", n_study, " samples, ", N_SNPS, " SNPs (pre-QC)")
+message("  data/reference.{bed,bim,fam}   -- ", n_ref, " samples (4 reference populations)")
+message("  instructor/*_truth.csv         -- answer key, keep out of student view")

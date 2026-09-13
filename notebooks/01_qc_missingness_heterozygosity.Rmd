@@ -1,0 +1,161 @@
+---
+title: "01 — Sample QC: Missingness & Heterozygosity"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+library(dplyr)
+library(ggplot2)
+```
+
+## Why these two checks, together
+
+Two of the most common signs of a bad DNA sample:
+
+- **High missingness** — a poor-quality sample where many genotypes
+  couldn't be called at all.
+- **Abnormal heterozygosity** — usually too *high* (a classic sign of
+  sample contamination: DNA from two people mixed together looks
+  heterozygous almost everywhere), sometimes too *low* (inbreeding, or a
+  labeling/technical error).
+
+Plotted against each other, per sample, bad samples tend to stand apart
+from the main cloud — and this is the standard first QC plot in real
+case/control GWAS pipelines (Anderson et al. 2010 is the classic reference
+protocol). Nobody hands you a fixed threshold in advance; you look at your
+own data's distribution and decide.
+
+## Step 1 — compute missingness and heterozygosity per sample
+
+```{bash}
+mkdir -p results
+plink2 --bfile data/study --missing --out results/study_qc
+plink2 --bfile data/study --het --out results/study_qc
+```
+
+`--missing` writes `results/study_qc.smiss` (per-sample) and `.vmiss`
+(per-SNP, we'll come back to that one later). `--het` writes
+`results/study_qc.het`.
+
+## Step 2 — load both into R and inspect them
+
+Don't assume column names — inspect the file before you write code against it:
+
+```{r}
+smiss <- data.table::fread("results/study_qc.smiss")
+het   <- data.table::fread("results/study_qc.het")
+names(smiss) <- sub("^#", "", names(smiss))
+names(het)   <- sub("^#", "", names(het))
+names(smiss)
+names(het)
+```
+
+**🔧 YOUR TURN:** `--het` reports observed homozygote count, expected
+homozygote count, and the number of non-missing genotypes it was computed
+over. Using the column names printed above, compute each sample's
+**observed heterozygosity rate**:
+
+$$\text{het rate} = \frac{N_{\text{non-missing}} - O(\text{HOM})}{N_{\text{non-missing}}}$$
+
+```{r}
+het <- het %>%
+  mutate(het_rate = (___FILL_IN___ - ___FILL_IN___) / ___FILL_IN___)
+```
+
+## Step 3 — the QC scatter plot
+
+```{r}
+qc <- smiss %>%
+  select(FID, IID, F_MISS) %>%
+  inner_join(het %>% select(FID, IID, het_rate), by = c("FID", "IID"))
+
+het_mean <- mean(qc$het_rate)
+het_sd   <- sd(qc$het_rate)
+
+ggplot(qc, aes(x = F_MISS, y = het_rate)) +
+  geom_point(alpha = 0.4, size = 1) +
+  scale_x_log10() +
+  labs(x = "Missingness rate (log scale)", y = "Heterozygosity rate",
+       title = "Per-sample missingness vs. heterozygosity") +
+  theme_minimal(base_size = 12)
+```
+
+Look at the shape of that cloud. Is there a dense main group and a
+handful of points clearly off to the side? In which direction(s)?
+
+## Step 4 — 🔧 YOUR TURN: pick your own thresholds
+
+There's no single universally "correct" cutoff — you're making a judgment
+call from the distribution you just plotted, the same way you would with
+real data. A commonly used starting point (not a law of nature): flag
+heterozygosity beyond **mean ± 3 SD**, and missingness above some rate that
+clearly separates the main cloud from the outliers in *your* plot.
+
+```{r}
+het_threshold_low  <- het_mean - 3 * het_sd   # feel free to adjust
+het_threshold_high <- het_mean + 3 * het_sd   # feel free to adjust
+miss_threshold     <- ___FILL_IN___             # pick a value by eye from the plot above
+
+qc <- qc %>%
+  mutate(fail_het  = het_rate < het_threshold_low | het_rate > het_threshold_high,
+         fail_miss = F_MISS > miss_threshold,
+         fail_qc   = fail_het | fail_miss)
+
+table(fail_het = qc$fail_het, fail_miss = qc$fail_miss)
+```
+
+Re-draw the plot, colouring the samples you're about to remove, to sanity
+check your choice before acting on it:
+
+```{r}
+ggplot(qc, aes(x = F_MISS, y = het_rate, color = fail_qc)) +
+  geom_point(alpha = 0.5, size = 1) +
+  scale_x_log10() +
+  scale_color_manual(values = c(`FALSE` = "grey40", `TRUE` = "firebrick")) +
+  labs(color = "Fails QC", title = "Samples flagged for removal") +
+  theme_minimal(base_size = 12)
+```
+
+Happy with it? Write the fail list out in the two-column format PLINK
+expects for `--remove` (FID, IID, no header):
+
+```{r}
+qc %>%
+  filter(fail_qc) %>%
+  select(FID, IID) %>%
+  write.table("results/qc_fail_samples.txt",
+              row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+
+cat("Flagged", sum(qc$fail_qc), "of", nrow(qc), "samples for removal.\n")
+```
+
+## Step 5 — apply the removal (and a standard SNP-missingness filter)
+
+While we're here, also drop SNPs with a failing call rate genome-wide
+(`--geno 0.05` = drop any SNP missing in more than 5% of remaining
+samples) — this is normally a quick, non-controversial default rather than
+something you eyeball a plot for, so we apply it directly:
+
+```{bash}
+plink2 --bfile data/study \
+  --remove results/qc_fail_samples.txt \
+  --geno 0.05 \
+  --make-bed \
+  --out data/study_qc1
+```
+
+```{bash}
+wc -l data/study_qc1.fam
+wc -l data/study_qc1.bim
+```
+
+You should have fewer samples than you started with, and fewer SNPs than
+50,000 (some fraction of the SNPs on "chromosome 9" were deliberately
+built to fail this exact filter — you'll likely notice that when you look
+at what got dropped).
+
+**Ancestry is still unresolved at this point** — nothing here removed
+samples for being a different ancestry; only for missingness/heterozygosity.
+That's what notebook 02 is for.

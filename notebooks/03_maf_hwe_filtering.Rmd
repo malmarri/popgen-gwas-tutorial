@@ -1,0 +1,147 @@
+---
+title: "03 — MAF & HWE Filtering"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+library(dplyr)
+library(ggplot2)
+```
+
+With sample QC and ancestry outliers dealt with (`data/study_qc2`), the
+last two variant-level filters before running the association test:
+**minor allele frequency (MAF)** and **Hardy-Weinberg equilibrium (HWE)**.
+
+## Why filter on MAF
+
+Very rare variants give you very little statistical power (few or no
+copies of the minor allele among your cases and controls to compare), and
+at the extreme, genotyping errors are more likely to masquerade as a real
+rare allele than a common one. A standard case/control GWAS filter is
+somewhere around 1% MAF — low enough to keep genuinely interesting
+variants, high enough to drop noise.
+
+```{bash}
+mkdir -p results
+plink2 --bfile data/study_qc2 --freq --out results/study_qc2_freq
+```
+
+```{r}
+freq <- data.table::fread("results/study_qc2_freq.afreq")
+names(freq) <- sub("^#", "", names(freq))
+freq <- freq %>% mutate(maf = pmin(ALT_FREQS, 1 - ALT_FREQS))
+
+ggplot(freq, aes(x = maf)) +
+  geom_histogram(bins = 60, fill = "#4C72B0") +
+  labs(title = "Minor allele frequency, post ancestry-QC", x = "MAF") +
+  theme_minimal(base_size = 12)
+```
+
+**🔧 YOUR TURN:** pick a MAF threshold from that distribution and check how
+many SNPs it would remove before committing to it:
+
+```{r}
+maf_threshold <- ___FILL_IN___   # e.g. try 0.01 and see how many SNPs that drops
+
+sum(freq$maf < maf_threshold)
+mean(freq$maf < maf_threshold)
+```
+
+## Why test HWE — and why only in controls
+
+Under random mating, genotype counts at a neutral SNP should follow
+Hardy-Weinberg proportions ($p^2, 2pq, q^2$). A SNP that deviates sharply
+is often a technical artefact (a genotyping/calling error) rather than
+biology — which is exactly what we injected on chromosome 8.
+
+**Important:** HWE is tested in **controls only** by default whenever
+PLINK sees a case/control phenotype loaded (cases are allowed to deviate
+from HWE *at a truly associated SNP* — that's not an error, it's a
+consequence of the SNP affecting who becomes a case. Testing HWE across
+everyone would penalize your best hits). Confirm PLINK is doing this:
+
+```{bash}
+plink2 --bfile data/study_qc2 --hardy --out results/study_qc2_hwe
+```
+
+```{r}
+hwe <- data.table::fread("results/study_qc2_hwe.hardy")
+names(hwe) <- sub("^#", "", names(hwe))
+head(hwe)
+```
+
+```{r}
+ggplot(hwe, aes(x = -log10(P))) +
+  geom_histogram(bins = 60, fill = "#8C8C8C") +
+  labs(title = "HWE test p-values across all SNPs") +
+  theme_minimal(base_size = 12)
+```
+
+**🔧 YOUR TURN:** most SNPs should show no HWE deviation at all (p-values
+close to uniform). A cluster of very small p-values is worth investigating
+before you blindly filter — look at *which chromosome* the most extreme
+hits fall on:
+
+```{r}
+hwe %>%
+  filter(P < 1e-6) %>%
+  count(CHROM) %>%
+  arrange(desc(n))
+```
+
+Does that match what notebook 00 told you about where a deliberate
+genotyping artefact was built in? Pick an HWE p-value threshold:
+
+```{r}
+hwe_threshold <- ___FILL_IN___   # a common default is 1e-6
+```
+
+## Apply both filters together
+
+```{bash}
+plink2 --bfile data/study_qc2 \
+  --maf 0.01 \
+  --hwe 1e-6 \
+  --make-bed \
+  --out data/study_final
+wc -l data/study_final.bim
+```
+
+*(Replace the `--maf`/`--hwe` values above with the thresholds you settled
+on, if different.)*
+
+`data/study_final` is the fully QC'd dataset the rest of the workshop
+calls the "corrected" analysis.
+
+## A preview of something you'll see in notebook 04
+
+Out of curiosity, try running the exact same `--hardy` command on
+`data/study_qc1` (sample-QC'd, but *before* ancestry outliers were
+removed) instead of `data/study_qc2`, and look specifically at chromosome
+7:
+
+```{bash}
+plink2 --bfile data/study_qc1 --hardy --out results/study_qc1_hwe
+```
+
+```{r}
+hwe_naive <- data.table::fread("results/study_qc1_hwe.hardy")
+names(hwe_naive) <- sub("^#", "", names(hwe_naive))
+hwe_naive %>% filter(CHROM == 7) %>% arrange(P) %>% head(3)
+```
+
+You should find one SNP on chromosome 7 with an almost impossibly small
+HWE p-value in the ancestry-mixed data — far more extreme than the
+genuine artefact block on chromosome 8. This is the **Wahlund effect**:
+pooling two genetically differentiated subpopulations that each have very
+different allele frequencies *at one particular SNP* creates an apparent
+massive excess of homozygotes there, purely from mixing structured
+groups — no genotyping error required. It's a real and important failure
+mode: a naive HWE filter applied to ancestry-mixed data wouldn't just
+give you a spurious warning here, it would actually **delete this SNP
+before you ever got to test it for association** — which is exactly why
+the "naive" analysis in notebook 04 deliberately does *not* apply an HWE
+filter, so you can see what that SNP does when it survives to the
+association test uncorrected. Keep this chromosome number in mind.

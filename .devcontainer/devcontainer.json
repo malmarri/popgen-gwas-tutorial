@@ -1,0 +1,21 @@
+{
+  "name": "GWAS Toy Workshop (RStudio + PLINK2)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    "8787": {
+      "label": "RStudio",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "containerEnv": {
+    "DISABLE_AUTH": "true"
+  },
+  "postCreateCommand": "Rscript R/simulate_toy_gwas.R",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  }
+}

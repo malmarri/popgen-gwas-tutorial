@@ -1,0 +1,133 @@
+---
+title: "04 — Running the GWAS: Naive vs. Ancestry-Corrected"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# The setup chunk runs in this file's own directory; every *later*
+# chunk runs from the project root thanks to root.dir below.
+proj_root <- normalizePath("..")
+knitr::opts_knit$set(root.dir = proj_root)
+library(dplyr)
+library(ggplot2)
+source(file.path(proj_root, "R/plot_utils.R"))
+```
+
+This is the centerpiece of the workshop: we're going to run the **same**
+association test twice, on two versions of the data that differ in
+exactly one way — whether ancestry outliers were removed — and see what
+population stratification actually does to a GWAS.
+
+- **Naive**: `data/study_qc1` (sample QC done, ancestry outliers *not*
+  removed) — filtered on MAF/HWE fresh, right now, in this notebook.
+- **Corrected**: `data/study_final` (the fully QC'd file from notebook 03).
+
+## Branch 1 — the naive analysis
+
+Deliberately **not** applying `--hwe` here — recall from notebook 03 that
+one particular SNP fails HWE catastrophically the moment ancestries are
+pooled (the Wahlund effect). Filtering on HWE first would delete it
+before we ever got to see what it does in an association test. A naive
+analyst who ran HWE QC on correctly-separated ancestries wouldn't have
+this problem — but one who pooled ancestries first, the way this "naive"
+branch does, might not even get that warning sign before publishing a
+false result. MAF filtering alone doesn't have this issue, so we keep it.
+
+```{bash}
+mkdir -p results
+plink2 --bfile data/study_qc1 --maf 0.01 --make-bed --out data/study_qc1_filtered
+```
+
+```{bash}
+plink2 --bfile data/study_qc1_filtered \
+  --glm allow-no-covars \
+  --out results/gwas_naive
+```
+
+## Branch 2 — the ancestry-corrected analysis
+
+```{bash}
+plink2 --bfile data/study_final \
+  --glm allow-no-covars \
+  --out results/gwas_corrected
+```
+
+`--glm` writes a `.PHENO1.glm.logistic.hybrid` file (or `.glm.logistic`,
+depending on your PLINK2 build — check the `results/` folder if the exact
+name below doesn't match and adjust the path).
+
+```{r}
+naive     <- read_glm(Sys.glob("results/gwas_naive.*.glm.logistic*")[1])
+corrected <- read_glm(Sys.glob("results/gwas_corrected.*.glm.logistic*")[1])
+nrow(naive); nrow(corrected)
+```
+
+## Compare: Manhattan plots side by side
+
+A reasonable multiple-testing threshold for ~50,000 independent tests is
+roughly $0.05/50000 \approx 1\times10^{-6}$ — looser than the $5\times10^{-8}$
+you'll see quoted for real ~1-million-SNP genotyping arrays, because we
+ran far fewer tests here. The threshold should always reflect how many
+tests you actually did.
+
+```{r, fig.height=4}
+sig_line <- 1e-6
+plot_manhattan(naive, title = "Naive (ancestry outliers included)", sig_line = sig_line)
+plot_manhattan(corrected, title = "Ancestry-corrected", sig_line = sig_line)
+```
+
+**🔧 YOUR TURN:** find the SNP(s) that cross the significance line in one
+analysis but not the other — check *both* directions, because ancestry
+correction can both remove a false signal and reveal a true one that was
+previously drowned out:
+
+```{r}
+sig_naive     <- naive     %>% filter(P < sig_line) %>% select(ID, CHROM, POS, P, OR)
+sig_corrected <- corrected %>% filter(P < sig_line) %>% select(ID, CHROM, POS, P, OR)
+
+only_in_naive     <- anti_join(sig_naive, sig_corrected, by = "ID")
+only_in_corrected <- anti_join(sig_corrected, sig_naive, by = "ID")
+only_in_naive
+only_in_corrected
+```
+
+The SNP that's significant only in the naive analysis is not a mistake in
+the pipeline — it's doing exactly what a real confounded,
+population-stratified false positive does (and it's on the chromosome
+notebook 03 flagged with the extreme HWE artefact — that's not a
+coincidence). The SNP significant only *after* correction is arguably the
+more important lesson: uncorrected stratification didn't just add a false
+hit, it added enough noise to obscure a real one.
+
+## Compare: QQ plots and genomic inflation (λ)
+
+```{r, fig.height=4}
+plot_qq(naive$P, title = paste0("Naive — λ_GC = ", round(lambda_gc(naive$P), 3)))
+plot_qq(corrected$P, title = paste0("Corrected — λ_GC = ", round(lambda_gc(corrected$P), 3)))
+```
+
+$\lambda_{GC}$ close to 1 means the bulk of your test statistics (almost
+all of which should be null — most SNPs have no real effect) behave the
+way chance alone predicts. A value well above 1, with the QQ plot bowing
+up away from the diagonal early, is the classic quantitative signature of
+unaccounted-for population stratification — the same problem you can see
+visually in the Manhattan plot, but as a single number you could report in
+a paper.
+
+**🔧 YOUR TURN:** report both λ_GC values here and describe, in a
+sentence or two, what changed between the two analyses and why:
+
+```{r}
+cat("Naive lambda_GC:    ", round(lambda_gc(naive$P), 3), "\n")
+cat("Corrected lambda_GC:", round(lambda_gc(corrected$P), 3), "\n")
+```
+
+_Your answer:_ ___FILL_IN___
+
+## What's next
+
+`05_interpretation_manhattan_qq.Rmd` digs into the **corrected** results
+specifically: which hits reached significance, how their estimated effect
+sizes compare to expectations, and why a couple of real signals might
+still be missing.

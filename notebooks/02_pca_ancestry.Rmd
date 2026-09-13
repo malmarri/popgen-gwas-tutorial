@@ -1,0 +1,181 @@
+---
+title: "02 — PCA & Ancestry"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# The setup chunk runs in this file's own directory; every *later*
+# chunk runs from the project root thanks to root.dir below.
+proj_root <- normalizePath("..")
+knitr::opts_knit$set(root.dir = proj_root)
+library(dplyr)
+library(ggplot2)
+source(file.path(proj_root, "R/sim_utils.R"))
+source(file.path(proj_root, "R/plot_utils.R"))
+```
+
+## Why compare to a reference panel
+
+Clustering your own samples in isolation can tell you "these people don't
+look like the rest," but not *who they actually are* — and in a real study
+you often want to know which continental/regional ancestry group a cluster
+corresponds to, or confirm that your "cases" and "controls" weren't
+recruited from subtly different populations. The standard approach:
+combine your samples with a panel of individuals from known reference
+populations (in real studies, often 1000 Genomes or HapMap), run PCA
+together, and see which reference population each of your clusters lines
+up with.
+
+`data/reference` is exactly that kind of panel here: several groups of
+individuals from **known** populations (labels included), generated
+independently of your study samples.
+
+## Step 1 — merge your (sample-QC'd) data with the reference panel
+
+Your study data and the reference panel were simulated from the *identical*
+SNP map, so merging is just a matter of stacking individuals — no strand
+flips or allele mismatches to worry about (real merges usually aren't this
+clean; `merge_same_snps()` below is a shortcut that only works because we
+guaranteed an identical marker set).
+
+```{r}
+merge_same_snps("data/study_qc1", "data/reference", "results/study_plus_ref")
+```
+
+```{bash}
+wc -l results/study_plus_ref.fam
+```
+
+## Step 2 — run PCA on the combined set
+
+```{bash}
+plink2 --bfile results/study_plus_ref \
+  --maf 0.05 \
+  --indep-pairwise 200 50 0.2 \
+  --out results/pca_prune
+plink2 --bfile results/study_plus_ref \
+  --extract results/pca_prune.prune.in \
+  --pca 10 \
+  --out results/pca
+```
+
+Two things worth noticing in that command: we filtered to reasonably
+common SNPs (`--maf 0.05`) and LD-pruned (`--indep-pairwise`) before PCA.
+Rare variants and SNPs in tight linkage disequilibrium can distort the
+top principal components — pruning keeps the PCs reflecting broad
+ancestry structure rather than a handful of correlated local SNPs.
+
+Check how many SNPs pruning actually removed here:
+
+```{bash}
+wc -l < results/pca_prune.prune.in
+wc -l < results/pca_prune.prune.out
+```
+
+You'll find it removed essentially **nothing**. That's a property of this
+simulation, not of the method: every SNP here was generated independently,
+so there is no linkage disequilibrium for pruning to find. On real data
+this step routinely discards half your markers or more, and skipping it
+genuinely does distort the top PCs. Keep the step in your muscle memory —
+notebook 05 comes back to what LD's absence changes about this dataset.
+
+## Step 3 — plot PC1 vs PC2, reference populations labeled
+
+```{r}
+eigenvec <- data.table::fread("results/pca.eigenvec")
+names(eigenvec) <- sub("^#", "", names(eigenvec))
+
+# Reference samples' IDs start with "R"; everyone else is a study sample.
+eigenvec <- eigenvec %>%
+  mutate(group = ifelse(grepl("^R", IID), "Reference (labeled)", "Study sample (unlabeled)"))
+
+# Note: the reference .fam alone doesn't carry population names. For this
+# exercise we only need to see that reference individuals form distinct,
+# labeled clusters; a real workflow would carry population labels through
+# a companion metadata file (e.g. 1000 Genomes' panel file).
+
+ggplot(eigenvec, aes(x = PC1, y = PC2, color = group)) +
+  geom_point(alpha = 0.6, size = 1) +
+  labs(title = "PCA: study samples vs. reference panel") +
+  theme_minimal(base_size = 12)
+```
+
+**🔧 YOUR TURN:** rerun the plot above but facet or color by something
+more informative than just "reference vs. study" — e.g. plot PC1 vs PC2
+with reference points colored by their FID prefix pattern, so you can see
+whether the reference panel actually forms multiple distinct clusters (it
+should — there are 4 reference populations in there, and one of them
+doesn't match anything in your study data at all):
+
+```{r}
+# Reference FIDs look like "R00001".."R00320", in 4 contiguous blocks of 80.
+eigenvec <- eigenvec %>%
+  mutate(ref_pop_guess = case_when(
+    !grepl("^R", IID) ~ NA_character_,
+    TRUE ~ ___FILL_IN___   # derive a 4-level label from IID's row order or numeric suffix
+  ))
+
+ggplot(eigenvec, aes(x = PC1, y = PC2)) +
+  geom_point(data = filter(eigenvec, is.na(ref_pop_guess)), color = "grey80", size = 1, alpha = 0.5) +
+  geom_point(data = filter(eigenvec, !is.na(ref_pop_guess)), aes(color = ref_pop_guess), size = 1.4) +
+  labs(title = "Study samples (grey) against 4 labeled reference populations") +
+  theme_minimal(base_size = 12)
+```
+
+## Step 4 — identify and remove ancestry outliers
+
+Now the real question: which of *your study samples* sit with the
+majority reference cluster, and which sit off to the side with a minority
+reference population? Decide on a rule (distance from the main cluster's
+centroid, a manual boundary drawn from the plot, k-means on PC1/PC2 — pick
+whichever you find easiest to justify) and flag the outliers.
+
+```{r}
+study_pts <- eigenvec %>% filter(is.na(ref_pop_guess))
+
+# A simple, explainable approach: define the majority cluster's centroid
+# from whichever group of study points is largest/densest, then flag
+# anyone beyond some distance from it.
+centroid_pc1 <- ___FILL_IN___   # e.g. median(PC1) of the obvious majority cluster
+centroid_pc2 <- ___FILL_IN___
+dist_threshold <- ___FILL_IN___  # pick from the plot
+
+study_pts <- study_pts %>%
+  mutate(dist_from_centroid = sqrt((PC1 - centroid_pc1)^2 + (PC2 - centroid_pc2)^2),
+         ancestry_outlier = dist_from_centroid > dist_threshold)
+
+table(study_pts$ancestry_outlier)
+```
+
+```{r}
+ggplot(study_pts, aes(PC1, PC2, color = ancestry_outlier)) +
+  geom_point(alpha = 0.6, size = 1) +
+  scale_color_manual(values = c(`FALSE` = "grey40", `TRUE` = "firebrick")) +
+  labs(title = "Study samples flagged as ancestry outliers") +
+  theme_minimal(base_size = 12)
+```
+
+Write the outlier list and apply it:
+
+```{r}
+study_pts %>%
+  filter(ancestry_outlier) %>%
+  select(FID, IID) %>%
+  write.table("results/ancestry_outliers.txt",
+              row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+```
+
+```{bash}
+plink2 --bfile data/study_qc1 \
+  --remove results/ancestry_outliers.txt \
+  --make-bed \
+  --out data/study_qc2
+wc -l data/study_qc2.fam
+```
+
+If your threshold was reasonable, `data/study_qc2` should now be close to
+a single, ancestrally homogeneous group — that's the file the rest of the
+workshop builds on for the "corrected" analysis. Keep `data/study_qc1`
+around too; notebook 04 deliberately reuses it to show what happens when
+you *skip* this step.
