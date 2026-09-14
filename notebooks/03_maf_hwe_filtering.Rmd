@@ -5,7 +5,17 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = normalizePath(".."))
+# Locate the project root and work from there. This makes the notebook behave
+# the same whether you press Knit or run chunks one at a time, and whether
+# RStudio's working directory is the project root or this notebooks/ folder.
+proj_root <- if (file.exists("R/sim_utils.R")) normalizePath(".") else normalizePath("..")
+if (!file.exists(file.path(proj_root, "R", "sim_utils.R"))) {
+  stop("Can't find the project root from ", getwd(), ".\n",
+       "In RStudio: Session > Set Working Directory > To Project Directory ",
+       "(or open popgen-gwas-tutorial.Rproj), then run this chunk again.")
+}
+knitr::opts_knit$set(root.dir = proj_root)                     # applies when knitting
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(proj_root)  # applies when running chunks
 library(dplyr)
 library(ggplot2)
 ```
@@ -49,22 +59,61 @@ sum(freq$maf < maf_threshold)
 mean(freq$maf < maf_threshold)
 ```
 
-## Why test HWE — and why only in controls
+## Why test HWE — and who exactly gets tested
 
 Under random mating, genotype counts at a neutral SNP should follow
 Hardy-Weinberg proportions ($p^2, 2pq, q^2$). A SNP that deviates sharply
 is often a technical artefact (a genotyping/calling error) rather than
 biology — which is exactly what we injected on chromosome 4.
 
-**Important:** HWE is tested in **controls only** by default whenever
-PLINK sees a case/control phenotype loaded (cases are allowed to deviate
-from HWE *at a truly associated SNP* — that's not an error, it's a
-consequence of the SNP affecting who becomes a case. Testing HWE across
-everyone would penalize your best hits). Confirm PLINK is doing this:
+There's a subtlety here that matters, and it's a good example of why you
+read your tool's documentation instead of assuming. At a SNP that *truly*
+affects disease risk, cases are **expected** to deviate from HWE — that's
+not an error, it's a direct consequence of the SNP influencing who becomes
+a case. So the textbook advice is to test HWE **in controls only**, to
+avoid penalizing your best real hits.
+
+PLINK **1.9** did exactly that automatically for case/control data. **PLINK
+2 does not** — it computes HWE over all founders (cases and controls
+together), as its own log output will tell you if you read it. Run it and
+look at what PLINK actually reports:
 
 ```{bash}
 plink2 --bfile data/study_qc2 --hardy --out results/study_qc2_hwe
+grep -iE "founders|hardy" results/study_qc2_hwe.log
 ```
+
+Note the "(founders only)" in that message — **not** "controls only". If
+you want the controls-only test in PLINK 2, you have to ask for it
+explicitly, by restricting to controls first:
+
+```{bash}
+awk '$6==1 {print $1"\t"$2}' data/study_qc2.fam > results/controls_only.txt
+plink2 --bfile data/study_qc2 --keep results/controls_only.txt \
+  --hardy --out results/study_qc2_hwe_controls
+```
+
+**🔧 YOUR TURN:** do the two versions actually disagree on this dataset?
+
+```{r}
+hwe_all  <- data.table::fread("results/study_qc2_hwe.hardy")
+hwe_ctrl <- data.table::fread("results/study_qc2_hwe_controls.hardy")
+names(hwe_all)  <- sub("^#", "", names(hwe_all))
+names(hwe_ctrl) <- sub("^#", "", names(hwe_ctrl))
+
+cmp <- merge(hwe_all[, .(ID, P_founders = P)],
+             hwe_ctrl[, .(ID, P_controls = P)], by = "ID")
+# how many SNPs would each approach flag at p < 1e-6?
+c(founders = sum(cmp$P_founders < 1e-6, na.rm = TRUE),
+  controls = sum(cmp$P_controls < 1e-6, na.rm = TRUE))
+```
+
+On *this* dataset the two give nearly the same answer, because the causal
+SNPs' effects are modest enough that case-driven HWE deviation stays small
+— you can check that none of your eventual hits get filtered out either
+way. In a study with larger effect sizes, the difference is exactly where
+you'd risk throwing away a real finding. We'll use PLINK 2's default
+below; just know what it's doing.
 
 ```{r}
 hwe <- data.table::fread("results/study_qc2_hwe.hardy")

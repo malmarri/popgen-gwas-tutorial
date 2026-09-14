@@ -10,8 +10,11 @@
 # Outputs:
 #   data/study.{bed,bim,fam}                 raw study data, PRE-QC
 #   data/reference.{bed,bim,fam}             reference panel, 4 populations
-#   instructor/snp_truth.csv                 which SNPs are causal/decoy (answer key -- don't peek!)
-#   instructor/sample_truth.csv              true ancestry + injected QC problems per sample (answer key)
+#
+# Instructors only -- written ONLY when GWAS_WORKSHOP_TRUTH=1 is set, so that
+# the answer key doesn't appear in every student's container (see below):
+#   instructor/snp_truth.csv                 which SNPs are causal/decoy
+#   instructor/sample_truth.csv              true ancestry + injected QC problems per sample
 
 suppressPackageStartupMessages(library(genio))
 source(file.path("R", "sim_utils.R"))
@@ -46,7 +49,15 @@ N_REF_PER_POP <- 80    # reference panel size per population
 FST_REF_D     <- 0.20  # a 4th reference population NOT present in the study
 
 dir.create("data", showWarnings = FALSE)
-dir.create("instructor", showWarnings = FALSE)
+
+# The instructor truth tables name every causal SNP and every planted QC
+# problem outright -- i.e. the entire answer key. They are NOT written by
+# default, because this script runs automatically in each student's
+# container and an "instructor/" folder sitting in the file browser is a
+# spoiler one click away. Instructors: regenerate them with
+#   GWAS_WORKSHOP_TRUTH=1 Rscript R/simulate_toy_gwas.R
+WRITE_TRUTH <- Sys.getenv("GWAS_WORKSHOP_TRUTH") == "1"
+if (WRITE_TRUTH) dir.create("instructor", showWarnings = FALSE)
 
 ## ---- 1. SNP map + arbitrary allele labels ---------------------------------
 snp_map <- build_snp_map(N_CHR, SNPS_PER_CHR)
@@ -241,6 +252,7 @@ fam_ref <- data.frame(
 write_plink(file.path("data", "reference"), X = geno_ref, bim = bim, fam = fam_ref)
 
 ## ---- 9. Instructor-only truth tables (answer key -- do not share) --------
+if (WRITE_TRUTH) {
 snp_truth <- data.frame(id = bim$id, role = "neutral", stringsAsFactors = FALSE)
 snp_truth$role[idx_causal] <- names(idx_causal)
 snp_truth$role[idx_decoy]  <- names(idx_decoy)
@@ -267,8 +279,13 @@ sample_truth <- data.frame(
   stringsAsFactors = FALSE
 )
 write.csv(sample_truth, file.path("instructor", "sample_truth.csv"), row.names = FALSE)
+}
 
 message("Done.")
 message("  data/study.{bed,bim,fam}       -- ", n_study, " samples, ", N_SNPS, " SNPs (pre-QC)")
 message("  data/reference.{bed,bim,fam}   -- ", n_ref, " samples (4 reference populations)")
-message("  instructor/*_truth.csv         -- answer key, keep out of student view")
+if (WRITE_TRUTH) {
+  message("  instructor/*_truth.csv         -- answer key, keep out of student view")
+} else {
+  message("  (instructor truth tables not written; set GWAS_WORKSHOP_TRUTH=1 for them)")
+}

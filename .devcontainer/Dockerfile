@@ -13,10 +13,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- PLINK 2.0 ------------------------------------------------------------
-# "latest" is cog-genomics's stable convenience link for the Linux x86_64
-# build. If this ever breaks, grab the current link from
-# https://www.cog-genomics.org/plink/2.0/ and update the URL below.
-RUN wget -q https://s3.amazonaws.com/plink2-assets/plink2_linux_x86_64_latest.zip -O /tmp/plink2.zip \
+# PINNED to a specific dated build rather than the floating "_latest" link,
+# so every student gets the identical binary no matter which day they create
+# their Codespace, and so a new upstream release can't silently change flag
+# behaviour or output formats mid-workshop. This exact build (v2.0.0-a.7.0LM,
+# 25 Apr 2026) was verified to still accept every flag this workshop uses --
+# notably `--glm ... allow-no-covars` -- and to still compute --hardy/--hwe
+# over *founders* (which notebook 03 explains). To move to a newer build,
+# get the dated link from https://www.cog-genomics.org/plink/2.0/ , update
+# the URL below, and re-run the notebooks end to end before the workshop.
+RUN wget -q https://s3.amazonaws.com/plink2-assets/alpha7/plink2_linux_x86_64_20260425.zip -O /tmp/plink2.zip \
     && unzip -o /tmp/plink2.zip -d /usr/local/bin \
     && rm /tmp/plink2.zip \
     && chmod +x /usr/local/bin/plink2 \

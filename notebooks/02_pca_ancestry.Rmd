@@ -5,10 +5,17 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# The setup chunk runs in this file's own directory; every *later*
-# chunk runs from the project root thanks to root.dir below.
-proj_root <- normalizePath("..")
-knitr::opts_knit$set(root.dir = proj_root)
+# Locate the project root and work from there. This makes the notebook behave
+# the same whether you press Knit or run chunks one at a time, and whether
+# RStudio's working directory is the project root or this notebooks/ folder.
+proj_root <- if (file.exists("R/sim_utils.R")) normalizePath(".") else normalizePath("..")
+if (!file.exists(file.path(proj_root, "R", "sim_utils.R"))) {
+  stop("Can't find the project root from ", getwd(), ".\n",
+       "In RStudio: Session > Set Working Directory > To Project Directory ",
+       "(or open popgen-gwas-tutorial.Rproj), then run this chunk again.")
+}
+knitr::opts_knit$set(root.dir = proj_root)                     # applies when knitting
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(proj_root)  # applies when running chunks
 library(dplyr)
 library(ggplot2)
 source(file.path(proj_root, "R/sim_utils.R"))
@@ -38,6 +45,10 @@ SNP map, so merging is just a matter of stacking individuals — no strand
 flips or allele mismatches to worry about (real merges usually aren't this
 clean; `merge_same_snps()` below is a shortcut that only works because we
 guaranteed an identical marker set).
+
+```{bash}
+mkdir -p results
+```
 
 ```{r}
 merge_same_snps("data/study_qc1", "data/reference", "results/study_plus_ref")

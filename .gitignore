@@ -11,7 +11,8 @@
 .Rhistory
 .RData
 .Ruserdata
-*.Rproj
+# NOTE: popgen-gwas-tutorial.Rproj IS committed on purpose -- opening it sets
+# RStudio's working directory to the project root, which the notebooks rely on.
 
 # knitr/rmarkdown intermediates
 *_cache/

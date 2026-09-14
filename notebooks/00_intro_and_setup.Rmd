@@ -5,7 +5,17 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-knitr::opts_knit$set(root.dir = normalizePath(".."))
+# Locate the project root and work from there. This makes the notebook behave
+# the same whether you press Knit or run chunks one at a time, and whether
+# RStudio's working directory is the project root or this notebooks/ folder.
+proj_root <- if (file.exists("R/sim_utils.R")) normalizePath(".") else normalizePath("..")
+if (!file.exists(file.path(proj_root, "R", "sim_utils.R"))) {
+  stop("Can't find the project root from ", getwd(), ".\n",
+       "In RStudio: Session > Set Working Directory > To Project Directory ",
+       "(or open popgen-gwas-tutorial.Rproj), then run this chunk again.")
+}
+knitr::opts_knit$set(root.dir = proj_root)                     # applies when knitting
+if (!isTRUE(getOption("knitr.in.progress"))) setwd(proj_root)  # applies when running chunks
 ```
 
 ## What you're working with

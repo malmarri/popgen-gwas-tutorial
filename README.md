@@ -64,8 +64,10 @@ you can check your own work against ground truth once you've worked through
 it honestly. The instructor's answer key is intentionally **not** in this
 repository — it lives in a private repo instead, so students who peek at the
 public source can't spoil it for themselves. (Instructors: see
-`popgen-gwas-tutorial-solutions`.) The `instructor/` folder (truth tables)
-is generated locally at runtime and gitignored for the same reason.
+`popgen-gwas-tutorial-solutions`.) The `instructor/` truth tables aren't
+generated at all unless an instructor explicitly asks for them
+(`GWAS_WORKSHOP_TRUTH=1 Rscript R/simulate_toy_gwas.R`), so they won't be
+sitting in your Codespace tempting you.
 
 ## Repository layout
 
@@ -75,7 +77,7 @@ R/                 simulation code (sim_utils.R, simulate_toy_gwas.R)
 notebooks/         the six workshop notebooks (.Rmd)
 data/              generated at runtime, gitignored — the PLINK filesets
 results/           generated as you work through the notebooks, gitignored
-instructor/        generated at runtime, gitignored — answer-key truth tables
+instructor/        answer-key truth tables — only created on request, gitignored
 ```
 
 Instructor answer key and build notes are kept in a separate private repo,
