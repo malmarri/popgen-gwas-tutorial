@@ -102,7 +102,16 @@ p_C[[idx_decoy]] <- decoy_freq_C
 # Retrospective case-control ascertainment: simulate genotypes + a liability
 # score from the 6 causal SNPs, keep sampling batches until we have exactly
 # N_CASES_TARGET cases and N_CONTROLS_TARGET controls.
-case_pool <- list(); control_pool <- list()
+# Pre-allocate the final-size matrices and fill columns in place as batches
+# come in, rather than accumulating a list of chunks and concatenating
+# afterward -- the list-then-cbind-then-subset approach briefly holds 2-3
+# full-size (~400MB) copies of the same data at once, which is what was
+# pushing this script's peak memory high enough to get OOM-killed on a
+# memory-constrained Codespace machine. This produces byte-identical output
+# to the old approach (same random draws, same order, just a different
+# place to put them), because only the *storage* changed, not the RNG calls.
+geno_cases    <- matrix(NA_integer_, nrow = N_SNPS, ncol = N_CASES_TARGET)
+geno_controls <- matrix(NA_integer_, nrow = N_SNPS, ncol = N_CONTROLS_TARGET)
 n_case_have <- 0; n_control_have <- 0
 batch <- 1
 while (n_case_have < N_CASES_TARGET || n_control_have < N_CONTROLS_TARGET) {
@@ -120,23 +129,26 @@ while (n_case_have < N_CASES_TARGET || n_control_have < N_CONTROLS_TARGET) {
 
   if (n_case_have < N_CASES_TARGET && length(cases_here) > 0) {
     take <- head(cases_here, N_CASES_TARGET - n_case_have)
-    case_pool[[length(case_pool) + 1]] <- g[, take, drop = FALSE]
+    geno_cases[, (n_case_have + 1):(n_case_have + length(take))] <- g[, take, drop = FALSE]
     n_case_have <- n_case_have + length(take)
   }
   if (n_control_have < N_CONTROLS_TARGET && length(controls_here) > 0) {
     take <- head(controls_here, N_CONTROLS_TARGET - n_control_have)
-    control_pool[[length(control_pool) + 1]] <- g[, take, drop = FALSE]
+    geno_controls[, (n_control_have + 1):(n_control_have + length(take))] <- g[, take, drop = FALSE]
     n_control_have <- n_control_have + length(take)
   }
   message(sprintf("  batch %d: cases %d/%d, controls %d/%d",
                    batch, n_case_have, N_CASES_TARGET, n_control_have, N_CONTROLS_TARGET))
   batch <- batch + 1
   if (batch > 50) stop("Could not reach target case/control counts -- check effect sizes.")
+  # Without this, each batch's ~300MB `g` piles up unreclaimed rather than
+  # being freed before the next batch allocates -- R doesn't trigger a
+  # garbage collection on every reassignment, so across several batches
+  # this was the single largest source of peak memory in the whole script.
+  rm(g); invisible(gc(FALSE))
 }
 
-geno_cases    <- do.call(cbind, case_pool)[, 1:N_CASES_TARGET, drop = FALSE]
-geno_controls <- do.call(cbind, control_pool)[, 1:N_CONTROLS_TARGET, drop = FALSE]
-geno_majority_clean  <- cbind(geno_cases, geno_controls)
+n_majority_clean     <- N_CASES_TARGET + N_CONTROLS_TARGET
 pheno_majority_clean <- c(rep(2L, N_CASES_TARGET), rep(1L, N_CONTROLS_TARGET))  # 2=case, 1=control
 
 ## ---- 5. Extra majority-ancestry samples designed to FAIL QC ---------------
@@ -158,9 +170,15 @@ pheno_ancB <- sample(c(1L, 2L), N_ANC_B, replace = TRUE, prob = c(0.85, 0.15))  
 pheno_ancC <- sample(c(1L, 2L), N_ANC_C, replace = TRUE, prob = c(0.15, 0.85))  # mostly cases
 
 ## ---- 7. Assemble the full pre-QC "study" fileset --------------------------
-geno_study <- cbind(geno_majority_clean, g_bad, g_ancB, g_ancC)
+# Single cbind (cases, controls, bad, ancB, ancC) instead of stacking through
+# an intermediate geno_majority_clean copy -- same column order and values,
+# one fewer ~1GB full-matrix duplicate held in memory at once.
+geno_study <- cbind(geno_cases, geno_controls, g_bad, g_ancB, g_ancC)
+rm(geno_cases, geno_controls, g_bad, g_ancB, g_ancC); invisible(gc(FALSE))
+
 geno_study <- corrupt_hwe(geno_study, idx_hwe_break)
 geno_study <- corrupt_snp_missingness(geno_study, idx_snp_miss)
+invisible(gc(FALSE))
 
 n_study <- ncol(geno_study)
 fam_study <- data.frame(
@@ -173,6 +191,7 @@ fam_study <- data.frame(
 )
 
 write_plink(file.path("data", "study"), X = geno_study, bim = bim, fam = fam_study)
+rm(geno_study); invisible(gc(FALSE))
 
 ## ---- 8. Reference panel (separate individuals, identical SNP map) --------
 p_refD <- bn_pop_freq(p_anc, FST_REF_D)
@@ -182,6 +201,7 @@ g_refC <- sim_genotypes(N_REF_PER_POP, p_C)
 g_refD <- sim_genotypes(N_REF_PER_POP, p_refD)
 
 geno_ref <- cbind(g_refA, g_refB, g_refC, g_refD)
+rm(g_refA, g_refB, g_refC, g_refD); invisible(gc(FALSE))
 n_ref <- ncol(geno_ref)
 fam_ref <- data.frame(
   fam   = sprintf("R%05d", seq_len(n_ref)),
@@ -207,12 +227,12 @@ write.csv(snp_truth, file.path("instructor", "snp_truth.csv"), row.names = FALSE
 sample_truth <- data.frame(
   fam = fam_study$fam, id = fam_study$id,
   true_ancestry = c(
-    rep("Ancestry_A", ncol(geno_majority_clean) + N_BAD_MAJORITY),
+    rep("Ancestry_A", n_majority_clean + N_BAD_MAJORITY),
     rep("Ancestry_B", N_ANC_B),
     rep("Ancestry_C", N_ANC_C)
   ),
   qc_flag = c(
-    rep("clean", ncol(geno_majority_clean)),
+    rep("clean", n_majority_clean),
     rep("het_outlier", length(het_bad_idx)),
     rep("high_missing", length(miss_bad_idx)),
     rep("clean_but_ancestry_outlier", N_ANC_B + N_ANC_C)
