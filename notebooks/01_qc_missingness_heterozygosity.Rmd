@@ -152,7 +152,7 @@ wc -l data/study_qc1.bim
 ```
 
 You should have fewer samples than you started with, and fewer SNPs than
-50,000 (some fraction of the SNPs on "chromosome 9" were deliberately
+25,000 (some fraction of the SNPs on chromosome 4 were deliberately
 built to fail this exact filter — you'll likely notice that when you look
 at what got dropped).
 

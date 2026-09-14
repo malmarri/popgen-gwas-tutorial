@@ -54,7 +54,7 @@ mean(freq$maf < maf_threshold)
 Under random mating, genotype counts at a neutral SNP should follow
 Hardy-Weinberg proportions ($p^2, 2pq, q^2$). A SNP that deviates sharply
 is often a technical artefact (a genotyping/calling error) rather than
-biology — which is exactly what we injected on chromosome 8.
+biology — which is exactly what we injected on chromosome 4.
 
 **Important:** HWE is tested in **controls only** by default whenever
 PLINK sees a case/control phenotype loaded (cases are allowed to deviate
@@ -120,7 +120,7 @@ calls the "corrected" analysis.
 Out of curiosity, try running the exact same `--hardy` command on
 `data/study_qc1` (sample-QC'd, but *before* ancestry outliers were
 removed) instead of `data/study_qc2`, and look specifically at chromosome
-7:
+3:
 
 ```{bash}
 plink2 --bfile data/study_qc1 --hardy --out results/study_qc1_hwe
@@ -129,12 +129,12 @@ plink2 --bfile data/study_qc1 --hardy --out results/study_qc1_hwe
 ```{r}
 hwe_naive <- data.table::fread("results/study_qc1_hwe.hardy")
 names(hwe_naive) <- sub("^#", "", names(hwe_naive))
-hwe_naive %>% filter(CHROM == 7) %>% arrange(P) %>% head(3)
+hwe_naive %>% filter(CHROM == 3) %>% arrange(P) %>% head(3)
 ```
 
-You should find one SNP on chromosome 7 with an almost impossibly small
+You should find one SNP on chromosome 3 with an almost impossibly small
 HWE p-value in the ancestry-mixed data — far more extreme than the
-genuine artefact block on chromosome 8. This is the **Wahlund effect**:
+genuine artefact block on chromosome 4. This is the **Wahlund effect**:
 pooling two genetically differentiated subpopulations that each have very
 different allele frequencies *at one particular SNP* creates an apparent
 massive excess of homozygotes there, purely from mixing structured

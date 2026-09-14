@@ -13,7 +13,7 @@ knitr::opts_knit$set(root.dir = normalizePath(".."))
 This is a **fully simulated** case/control GWAS dataset — no real genomes
 involved. It was built to behave like a real one, problems included:
 
-- **10 fake chromosomes**, 5,000 SNPs each = **50,000 SNPs total**
+- **5 fake chromosomes**, 5,000 SNPs each = **25,000 SNPs total**
 - A **majority ancestry group** plus **two minority ancestry groups** mixed
   into the raw data, with no ancestry label given to you up front
 - A handful of samples with **injected QC problems** (contamination-like

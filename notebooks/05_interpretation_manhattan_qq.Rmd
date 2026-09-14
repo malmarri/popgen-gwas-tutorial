@@ -20,7 +20,7 @@ actually stand behind.
 
 ```{r}
 corrected <- read_glm(Sys.glob("results/gwas_corrected.*.glm.logistic*")[1])
-sig_line <- 1e-6
+sig_line <- 2e-6
 ```
 
 ## Which SNPs reached significance?
@@ -37,10 +37,12 @@ For each hit, sanity-check the reported odds ratio: **which allele is it
 relative to?** The `A1` column tells you which allele PLINK tested. If an
 `OR` comes out less than 1, that means the *other* allele (not `A1`) is
 the one associated with higher risk — take the reciprocal (`1/OR`) to
-express the effect in terms of the risk-increasing allele. This isn't a
-bug in the simulation; it's a real and common gotcha when reading any
-GWAS summary statistics table, since which allele ends up labeled A1 is
-just a bookkeeping choice made upstream.
+express the effect in terms of the risk-increasing allele. (On this
+dataset's seed, every current hit happens to already have `OR > 1`, so the
+line below is a no-op here — but don't skip it: which allele lands as A1
+is an upstream bookkeeping choice, not something you control, and it
+won't always land this conveniently. This is a real and common gotcha when
+reading any GWAS summary statistics table.)
 
 ```{r}
 hits <- hits %>%
@@ -54,24 +56,31 @@ hits
 plot_manhattan(corrected, title = "Corrected GWAS", sig_line = sig_line)
 ```
 
-**🔧 YOUR TURN:** count how many *distinct* chromosomes have at least one
-SNP crossing the significance line:
+**🔧 YOUR TURN:** count how many *distinct* SNPs, and how many *distinct*
+chromosomes, have at least one hit crossing the significance line:
 
 ```{r}
 hits %>% distinct(CHROM)
+nrow(hits)
 ```
 
 Recall from notebook 00 that this dataset embeds SNPs across a **range**
 of allele frequencies and effect sizes, deliberately chosen so that not
 every real signal would be expected to reach significance at this sample
-size. You should find **three** chromosomes with a peak crossing the line.
-There are more than three real causal variants in this data — the ones you
-*don't* see are not a failure of your analysis, they're underpowered. That
-gap between "how many real effects exist" and "how many you can detect" is
-the single most important practical fact about GWAS, and notebook 05's
+size. You should find **4 significant SNPs across 2 chromosomes** — notice
+those two numbers aren't the same. More than one real hit can share a
+chromosome (chromosome 2 has two here), which is completely realistic:
+different genes at different positions on the same chromosome can each be
+independently associated with a disease. Counting distinct *SNPs* is what
+actually matters; counting distinct chromosomes just happens to
+undercount when that overlap occurs. And there are more than 4 real
+causal variants in this data in the first place — the ones you don't see
+at all are not a failure of your analysis, they're underpowered. That gap
+between "how many real effects exist" and "how many you can detect" is
+the single most important practical fact about GWAS, and this notebook's
 discussion questions come back to it.
 
-## A closer look: zoom into one peak
+## A closer look: zoom into the top chromosome
 
 ```{r}
 top_chr <- hits$CHROM[1]
@@ -85,10 +94,13 @@ corrected %>%
   theme_minimal(base_size = 12)
 ```
 
-Notice that the peak here is a **single isolated point** — its immediate
-neighbours sit right down in the noise. That is a deliberate property of
-this simulation, and it's worth pausing on, because it is *not* what real
-GWAS data looks like.
+Notice **two separate peaks** on this one chromosome, not one — two
+different causal SNPs happen to have been placed here. Look closely at
+either peak individually, though, and each one is a **single isolated
+point**: its immediate neighbours sit right down in the noise, with
+nothing gradually building up or tailing off around it. That's a
+deliberate property of this simulation, and it's worth pausing on, because
+it is *not* what real GWAS data looks like.
 
 Every SNP in this dataset was simulated independently, so there is no
 **linkage disequilibrium (LD)** — no correlation between neighbouring
@@ -98,24 +110,27 @@ copy of the same signal and form the characteristic "skyscraper with
 shoulders" shape you see in published Manhattan plots. That's also why
 real GWAS hits are reported as *loci* rather than single variants, and why
 the top SNP at a locus is very often not the causal one — it's just the
-best-tagged marker nearby.
+best-tagged marker nearby. Multiple real, independent loci sitting on the
+same chromosome (like the two peaks above) is a separate and unrelated
+phenomenon from LD — LD is about correlation *within* one locus's
+neighbourhood, not about how many independent loci a chromosome can hold.
 
-Two things in this workshop are quietly shaped by that absence: the
+Two things in this workshop are quietly shaped by the absence of LD: the
 LD-pruning step in notebook 02 had almost nothing to remove, and our
-significance threshold treats all ~50,000 SNPs as independent tests, which
+significance threshold treats all ~25,000 SNPs as independent tests, which
 here is actually true (in real data it's conservative, because correlated
 SNPs aren't independent tests).
 
-Compare the single-point peak to what a chromosome with *no* real signal
+Compare these isolated peaks to what a chromosome with *no* real signal
 looks like:
 
 ```{r}
 corrected %>%
-  filter(CHROM == 10) %>%   # chromosome 10 was built with no injected signal at all
+  filter(CHROM == 5) %>%   # chromosome 5 was built with no injected signal at all
   ggplot(aes(x = POS, y = -log10(P))) +
   geom_point(alpha = 0.6, size = 1) +
   geom_hline(yintercept = -log10(sig_line), linetype = "dashed", color = "firebrick") +
-  labs(title = "Chromosome 10 (expected: nothing here)", x = "Position") +
+  labs(title = "Chromosome 5 (expected: nothing here)", x = "Position") +
   theme_minimal(base_size = 12)
 ```
 
@@ -127,9 +142,9 @@ corrected %>%
    fail to cross the genome-wide significance line in a study this size?
    Name at least two contributing factors.
 2. The significance threshold used throughout this workshop
-   ($\approx 1\times10^{-6}$) is far less strict than the standard
+   ($\approx 2\times10^{-6}$) is far less strict than the standard
    $5\times10^{-8}$ used in most published human GWAS. Why is that
-   difference justified here, and why would using $1\times10^{-6}$ on a
+   difference justified here, and why would using $2\times10^{-6}$ on a
    real ~1-million-SNP genotyping array be a problem?
 3. Real common-disease GWAS often need tens or hundreds of thousands of
    participants. Point to something specific in today's results that

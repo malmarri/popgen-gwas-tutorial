@@ -2,7 +2,7 @@
 #
 # Generates the toy GWAS dataset used throughout the workshop notebooks.
 # Everything is simulated -- there is no real genetic data involved, and
-# the "chromosomes" are fake (10 of them, 5,000 SNPs each = 50,000 total).
+# the "chromosomes" are fake (5 of them, 5,000 SNPs each = 25,000 total).
 #
 # Run once per workshop:  Rscript R/simulate_toy_gwas.R
 # (this also happens automatically when the devcontainer is built)
@@ -16,12 +16,20 @@
 suppressPackageStartupMessages(library(genio))
 source(file.path("R", "sim_utils.R"))
 
-set.seed(20260913)  # fixed seed -> every student gets an identical dataset
+# Fixed seed -> every student gets an identical dataset. Chosen (out of
+# ~20 candidates tested against real PLINK2 output after the 10->5
+# chromosome change) specifically because it gives a clean, unambiguous
+# single false positive at decoy_1 in the naive analysis with no other
+# SNP spuriously crossing threshold, AND keeps causal_6 (the deliberately
+# low-frequency/large-effect SNP) clearly detectable after correction --
+# both properties took real searching to get simultaneously at 25,000
+# SNPs (half the test count means less "room" for both to line up).
+set.seed(7)
 
 ## ---- Study design constants ----------------------------------------------
-N_CHR        <- 10
+N_CHR        <- 5
 SNPS_PER_CHR <- 5000
-N_SNPS       <- N_CHR * SNPS_PER_CHR  # 50,000
+N_SNPS       <- N_CHR * SNPS_PER_CHR  # 25,000
 
 N_CASES_TARGET    <- 2000
 N_CONTROLS_TARGET <- 2000
@@ -53,14 +61,19 @@ bim <- data.frame(
   stringsAsFactors = FALSE
 )
 
-## ---- 2. Pick the 6 causal SNPs + 1 decoy SNP, one per chromosome ----------
-special_idx <- function(chrom, offset = 2500) which(bim$chr == chrom)[offset]
+## ---- 2. Pick the 6 causal SNPs + 1 decoy SNP -------------------------------
+# With only 5 chromosomes, several special roles now share a chromosome
+# (distinguished by position instead): chr1/chr2 hold three causal SNPs
+# each, chr3 holds the decoy alone (it's the centerpiece of notebook 04,
+# worth keeping easy to point at), chr4 holds both QC-artifact blocks,
+# and chr5 is left completely clean as the null-chromosome contrast.
+special_idx <- function(chrom, offset) which(bim$chr == chrom)[offset]
 
 idx_causal <- c(
-  causal_1 = special_idx(1), causal_2 = special_idx(2), causal_3 = special_idx(3),
-  causal_4 = special_idx(4), causal_5 = special_idx(5), causal_6 = special_idx(6)
+  causal_1 = special_idx(1, 1250), causal_2 = special_idx(1, 2500), causal_3 = special_idx(1, 3750),
+  causal_4 = special_idx(2, 1250), causal_5 = special_idx(2, 2500), causal_6 = special_idx(2, 3750)
 )
-idx_decoy <- c(decoy_1 = special_idx(7))
+idx_decoy <- c(decoy_1 = special_idx(3, 2500))
 
 causal_maf <- c(causal_1 = 0.30, causal_2 = 0.20, causal_3 = 0.15,
                 causal_4 = 0.10, causal_5 = 0.05, causal_6 = 0.02)
@@ -71,11 +84,14 @@ log_or_causal <- log(causal_or)
 decoy_freq_A <- 0.05  # ancestry A and B share this frequency (no confounding there)
 decoy_freq_C <- 0.95  # ancestry C differs sharply -> drives the stratification example
 
-# chr8: block of SNPs with a genuine HWE violation (genotyping artefact)
-idx_hwe_break <- which(bim$chr == 8)[1000:1300]
-# chr9: block of SNPs with high missingness (failing assay)
-idx_snp_miss  <- which(bim$chr == 9)[1000:1200]
-# chr10 is left with no injected features at all -- a "clean null" chromosome
+# chr4, positions 500-800: block of SNPs with a genuine HWE violation
+# (genotyping artefact). Same block size (300 SNPs) as before.
+idx_hwe_break <- which(bim$chr == 4)[500:800]
+# chr4, positions 3500-3700: block of SNPs with high missingness (failing
+# assay). Same block size (200 SNPs) as before; well clear of the HWE
+# block above so the two artefacts stay distinguishable by position.
+idx_snp_miss  <- which(bim$chr == 4)[3500:3700]
+# chr5 is left with no injected features at all -- a "clean null" chromosome
 
 ## ---- 3. Population allele frequencies -------------------------------------
 p_anc <- runif(N_SNPS, 0.05, 0.50)  # ancestral/global frequency for ordinary SNPs

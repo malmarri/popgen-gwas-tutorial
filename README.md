@@ -2,7 +2,7 @@
 
 **Population genetics, statistical genetics, and GWAS — a hands-on tutorial**
 
-A fully simulated case/control GWAS dataset (10 fake chromosomes, 50,000 SNPs,
+A fully simulated case/control GWAS dataset (5 fake chromosomes, 25,000 SNPs,
 ~4,600 samples across a majority ancestry and two minority ancestries) that
 you QC, filter, and analyze end-to-end in R + PLINK2 — no real genetic data
 involved, and no local software to install.

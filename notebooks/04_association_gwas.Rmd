@@ -65,14 +65,14 @@ nrow(naive); nrow(corrected)
 
 ## Compare: Manhattan plots side by side
 
-A reasonable multiple-testing threshold for ~50,000 independent tests is
-roughly $0.05/50000 \approx 1\times10^{-6}$ — looser than the $5\times10^{-8}$
+A reasonable multiple-testing threshold for ~25,000 independent tests is
+roughly $0.05/25000 \approx 2\times10^{-6}$ — looser than the $5\times10^{-8}$
 you'll see quoted for real ~1-million-SNP genotyping arrays, because we
 ran far fewer tests here. The threshold should always reflect how many
 tests you actually did.
 
 ```{r, fig.height=4}
-sig_line <- 1e-6
+sig_line <- 2e-6
 plot_manhattan(naive, title = "Naive (ancestry outliers included)", sig_line = sig_line)
 plot_manhattan(corrected, title = "Ancestry-corrected", sig_line = sig_line)
 ```
@@ -96,9 +96,12 @@ The SNP that's significant only in the naive analysis is not a mistake in
 the pipeline — it's doing exactly what a real confounded,
 population-stratified false positive does (and it's on the chromosome
 notebook 03 flagged with the extreme HWE artefact — that's not a
-coincidence). The SNP significant only *after* correction is arguably the
-more important lesson: uncorrected stratification didn't just add a false
-hit, it added enough noise to obscure a real one.
+coincidence). Checking `only_in_corrected` too is good habit even when it
+comes back empty, as it does here: it's the honest way to confirm that
+correction *only* removed a false signal here and didn't collaterally cost
+you a real one. That's not guaranteed in general — with heavier
+stratification, correction can obscure real hits along with fake ones, so
+always check both directions rather than assuming the fix was free.
 
 ## Compare: QQ plots and genomic inflation (λ)
 
