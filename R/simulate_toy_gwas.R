@@ -192,6 +192,17 @@ pheno_ancC <- sample(c(1L, 2L), N_ANC_C, replace = TRUE, prob = c(0.15, 0.85))  
 geno_study <- cbind(geno_cases, geno_controls, g_bad, g_ancB, g_ancC)
 rm(geno_cases, geno_controls, g_bad, g_ancB, g_ancC); invisible(gc(FALSE))
 
+# Give each causal SNP realistic-looking "LD shoulders" -- nearby SNPs on
+# the same chromosome become partially correlated with it, correlation
+# decaying with distance, so the Manhattan plot shows the skyscraper-with-
+# shoulders shape of a real locus instead of a single isolated spike.
+# Deliberately NOT applied to decoy_1: its whole lesson is that it looks
+# associated with no real biology behind it, and giving it LD support
+# would undermine that by making it look like a genuine locus.
+for (nm in names(idx_causal)) {
+  geno_study <- add_ld_block(geno_study, idx_causal[[nm]])
+}
+
 geno_study <- corrupt_hwe(geno_study, idx_hwe_break)
 geno_study <- corrupt_snp_missingness(geno_study, idx_snp_miss)
 invisible(gc(FALSE))

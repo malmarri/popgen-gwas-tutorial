@@ -73,12 +73,13 @@ wc -l < results/pca_prune.prune.in
 wc -l < results/pca_prune.prune.out
 ```
 
-You'll find it removed essentially **nothing**. That's a property of this
-simulation, not of the method: every SNP here was generated independently,
-so there is no linkage disequilibrium for pruning to find. On real data
-this step routinely discards half your markers or more, and skipping it
-genuinely does distort the top PCs. Keep the step in your muscle memory —
-notebook 05 comes back to what LD's absence changes about this dataset.
+You'll find it removed only a small handful — nothing like the "routinely
+discards half your markers or more" you'd see on real data. That's a
+property of this simulation: almost every SNP here was generated
+independently, with no correlation to its neighbors at all. The few that
+*do* get pruned aren't scattered randomly, though — they cluster tightly
+around a small number of specific positions. Notebook 05 comes back to
+exactly where, and why those particular spots are the exception.
 
 ## Step 3 — plot PC1 vs PC2, reference populations labeled
 

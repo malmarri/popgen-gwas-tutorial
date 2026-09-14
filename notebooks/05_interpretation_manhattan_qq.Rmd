@@ -67,18 +67,19 @@ nrow(hits)
 Recall from notebook 00 that this dataset embeds SNPs across a **range**
 of allele frequencies and effect sizes, deliberately chosen so that not
 every real signal would be expected to reach significance at this sample
-size. You should find **4 significant SNPs across 2 chromosomes** — notice
-those two numbers aren't the same. More than one real hit can share a
-chromosome (chromosome 2 has two here), which is completely realistic:
-different genes at different positions on the same chromosome can each be
-independently associated with a disease. Counting distinct *SNPs* is what
-actually matters; counting distinct chromosomes just happens to
-undercount when that overlap occurs. And there are more than 4 real
-causal variants in this data in the first place — the ones you don't see
-at all are not a failure of your analysis, they're underpowered. That gap
-between "how many real effects exist" and "how many you can detect" is
-the single most important practical fact about GWAS, and this notebook's
-discussion questions come back to it.
+size. You should find **5 significant SNPs across 2 chromosomes** — notice
+those two numbers aren't the same, for two different reasons you'll see up
+close below: (1) more than one real causal SNP can share a chromosome by
+design (chromosome 2 has two here), and (2) a SNP *right next to* a real
+causal SNP can ride along and cross the line too, without being causal
+itself. Counting distinct *SNPs* is what actually matters for "how many
+signals did I find"; counting distinct chromosomes undercounts whenever
+either of those happens. And there are more than 5 real causal variants in
+this data in the first place — the ones you don't see at all are not a
+failure of your analysis, they're underpowered. That gap between "how many
+real effects exist" and "how many you can detect" is the single most
+important practical fact about GWAS, and this notebook's discussion
+questions come back to it.
 
 ## A closer look: zoom into the top chromosome
 
@@ -94,34 +95,63 @@ corrected %>%
   theme_minimal(base_size = 12)
 ```
 
-Notice **two separate peaks** on this one chromosome, not one — two
-different causal SNPs happen to have been placed here. Look closely at
-either peak individually, though, and each one is a **single isolated
-point**: its immediate neighbours sit right down in the noise, with
-nothing gradually building up or tailing off around it. That's a
-deliberate property of this simulation, and it's worth pausing on, because
-it is *not* what real GWAS data looks like.
+Two separate peaks on this one chromosome — two different causal SNPs
+happen to have been placed here. At this zoomed-out scale they look like
+thin spikes, but look closer and each one is actually a small **hill**,
+not a needle. Zoom into just the tallest one:
 
-Every SNP in this dataset was simulated independently, so there is no
-**linkage disequilibrium (LD)** — no correlation between neighbouring
-markers. In real data, a causal variant drags its neighbours up with it:
-SNPs physically close by are inherited together, so they carry a partial
-copy of the same signal and form the characteristic "skyscraper with
-shoulders" shape you see in published Manhattan plots. That's also why
-real GWAS hits are reported as *loci* rather than single variants, and why
-the top SNP at a locus is very often not the causal one — it's just the
-best-tagged marker nearby. Multiple real, independent loci sitting on the
-same chromosome (like the two peaks above) is a separate and unrelated
-phenomenon from LD — LD is about correlation *within* one locus's
-neighbourhood, not about how many independent loci a chromosome can hold.
+```{r}
+top_snp <- hits$POS[1]
 
-Two things in this workshop are quietly shaped by the absence of LD: the
-LD-pruning step in notebook 02 had almost nothing to remove, and our
-significance threshold treats all ~25,000 SNPs as independent tests, which
-here is actually true (in real data it's conservative, because correlated
-SNPs aren't independent tests).
+corrected %>%
+  filter(CHROM == top_chr, POS > top_snp - 30000, POS < top_snp + 30000) %>%
+  ggplot(aes(x = POS, y = -log10(P))) +
+  geom_point(alpha = 0.7, size = 1.5) +
+  geom_hline(yintercept = -log10(sig_line), linetype = "dashed", color = "firebrick") +
+  labs(title = "Zoomed in: the top hit's immediate neighbourhood", x = "Position") +
+  theme_minimal(base_size = 12)
+```
 
-Compare these isolated peaks to what a chromosome with *no* real signal
+That's the "skyscraper with shoulders" shape real GWAS Manhattan plots are
+known for: nearby SNPs build up toward the peak and fall back off on the
+other side, instead of the causal SNP standing alone against flat noise.
+This is **linkage disequilibrium (LD)**: SNPs physically close together
+tend to be inherited as a block rather than independently, so they carry a
+correlated, diluted copy of the same signal. Real GWAS hits are reported
+as *loci* rather than single variants for exactly this reason — LD makes
+it genuinely ambiguous, from the association test alone, which SNP in a
+correlated neighbourhood is the actual causal one, and pinning that down
+(*fine-mapping*) is its own hard problem beyond just finding the locus.
+
+This dataset now has that property, but only in **small, deliberate
+patches around the causal SNPs** — everywhere else, SNPs still behave
+completely independently (unlike real genomes, where LD extends
+genome-wide in a complex block structure). That's why LD-pruning in
+notebook 02 only removed a small number of SNPs, clustered right around
+these same peaks, rather than the large fraction it would strip from real
+data.
+
+**🔧 YOUR TURN:** look at the two SNPs highlighted below and compare their
+p-values:
+
+```{r}
+corrected %>% filter(ID %in% c("chr1_snp02500", "chr1_snp02501")) %>%
+  select(ID, CHROM, POS, P)
+```
+
+One of these is the deliberately-placed causal SNP; the other is its
+immediate neighbour, one position over, tagging along via LD closely
+enough to also cross the significance line. In this particular case the
+true causal SNP is still the more significant of the two — but that's not
+guaranteed in general. In real data, a neighbour can sometimes show a
+*stronger* signal than the actual causal variant (due to how well each SNP
+happens to be genotyped or tagged), which is exactly why "the top hit at a
+locus" and "the causal variant at a locus" are different claims, and why
+GWAS papers report *loci*, then spend separate effort fine-mapping which
+specific variant within each locus is doing the actual biological work.
+
+Compare all of this — real shoulders, a locus with more than one
+significant SNP — to what a chromosome with *no* injected signal at all
 looks like:
 
 ```{r}

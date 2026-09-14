@@ -114,6 +114,57 @@ corrupt_hwe <- function(geno, snp_idx, dropout_rate = 0.5) {
   geno
 }
 
+#' Inject approximate linkage disequilibrium around one causal SNP by making
+#' nearby SNPs' genotypes partially correlated with it, correlation strength
+#' decaying with distance -- this is what produces the "shoulders" around a
+#' real GWAS peak, which this simulation's otherwise fully-independent SNPs
+#' don't have on their own. Not a real recombination/haplotype model, just
+#' enough structure for a realistic-looking, teachable Manhattan plot: for
+#' each neighbor, each of its two allele copies is probabilistically
+#' replaced with the corresponding allele copy from the causal SNP (an
+#' arbitrary per-individual phase is assigned to decompose each genotype
+#' into two alleles, since this simulation never tracked real phase -- any
+#' consistent decomposition works for this purpose).
+#'
+#' @param geno       SNPs x individuals genotype matrix
+#' @param causal_idx row index of the causal SNP within `geno`
+#' @param window     how many neighboring SNPs on each side to affect
+#' @param r_max      copy-probability per allele at distance 1 (nearest neighbor)
+#' @param decay      exponential decay scale, in SNP-index units
+add_ld_block <- function(geno, causal_idx, window = 20, r_max = 0.85, decay = 6) {
+  n_snps <- nrow(geno)
+  n_ind  <- ncol(geno)
+  g_c <- geno[causal_idx, ]
+
+  to_alleles <- function(g) {
+    a1 <- ifelse(g == 2, 1L, ifelse(g == 0, 0L, rbinom(length(g), 1, 0.5)))
+    list(a1 = a1, a2 = g - a1)
+  }
+  al_c <- to_alleles(g_c)
+  causal_na <- is.na(g_c)
+
+  neighbor_idx <- setdiff(
+    max(1, causal_idx - window):min(n_snps, causal_idx + window),
+    causal_idx
+  )
+
+  for (j in neighbor_idx) {
+    r <- r_max * exp(-abs(j - causal_idx) / decay)
+    g_j  <- geno[j, ]
+    al_j <- to_alleles(g_j)
+
+    copy1 <- rbinom(n_ind, 1, r) == 1 & !causal_na
+    copy2 <- rbinom(n_ind, 1, r) == 1 & !causal_na
+    al_j$a1[copy1] <- al_c$a1[copy1]
+    al_j$a2[copy2] <- al_c$a2[copy2]
+
+    new_g <- al_j$a1 + al_j$a2
+    new_g[is.na(g_j)] <- NA  # preserve any pre-existing missingness at j
+    geno[j, ] <- new_g
+  }
+  geno
+}
+
 #' Merge two PLINK filesets that were generated from the SAME underlying SNP
 #' map (same variants, same ref/alt coding) by stacking their individuals,
 #' restricted to whichever SNP IDs both filesets still have in common.

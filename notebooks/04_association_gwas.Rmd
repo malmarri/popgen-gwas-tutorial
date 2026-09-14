@@ -96,12 +96,18 @@ The SNP that's significant only in the naive analysis is not a mistake in
 the pipeline — it's doing exactly what a real confounded,
 population-stratified false positive does (and it's on the chromosome
 notebook 03 flagged with the extreme HWE artefact — that's not a
-coincidence). Checking `only_in_corrected` too is good habit even when it
-comes back empty, as it does here: it's the honest way to confirm that
-correction *only* removed a false signal here and didn't collaterally cost
-you a real one. That's not guaranteed in general — with heavier
-stratification, correction can obscure real hits along with fake ones, so
-always check both directions rather than assuming the fix was free.
+coincidence).
+
+The SNP that's significant only *after* correction is a different kind of
+lesson, and a subtler one: it sits immediately next to a real causal SNP,
+tagging along on that SNP's true signal via linkage disequilibrium
+(notebook 05 digs into this properly). In the naive analysis it's just
+short of the line; removing the stratification noise nudges it over.
+Nothing was manufactured here — the underlying signal was real in both
+analyses, just partly buried by extra noise in one of them. That's the
+general shape of why correcting a real confound can occasionally *reveal*
+a hit as well as remove one: less noise means more of what's genuinely
+there becomes visible, in both directions at once.
 
 ## Compare: QQ plots and genomic inflation (λ)
 
