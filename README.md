@@ -13,13 +13,30 @@ involved, and no local software to install.
 
 Click the badge, wait for the container to build (a couple of minutes the
 first time), then open RStudio in the browser tab that appears — no password
-required. The toy dataset is generated automatically on first build
+required. **Make sure you're actually in that RStudio tab** (URL ending in
+`.app.github.dev`), not the Codespace's default VS Code/terminal view — the
+notebooks need R, which only runs inside RStudio Server.
+
+The toy dataset is generated automatically on first build
 (`R/simulate_toy_gwas.R` runs via `postCreateCommand`); if you ever need to
-regenerate it by hand, run:
+regenerate it by hand, run this **in RStudio's Console** (bottom-left pane):
 
 ```r
 source("R/simulate_toy_gwas.R")
 ```
+
+If you're doing this from a plain terminal instead (e.g. the Codespace's
+default shell, not RStudio's Console), use `Rscript` rather than `source`
+— bash has its own unrelated `source` command that will not run R code:
+
+```bash
+Rscript R/simulate_toy_gwas.R
+```
+
+Either way, only run it from **one place at a time**. This script briefly
+uses a few GB of memory; running it twice at once (e.g. once in a terminal
+and once in RStudio's Console) roughly doubles that, and can get one of
+the processes killed on a memory-constrained machine.
 
 Prefer to work locally? Any editor with the
 [Dev Containers](https://containers.dev/) spec support (e.g. VS Code +

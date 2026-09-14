@@ -15,7 +15,7 @@
   },
   "postCreateCommand": "Rscript R/simulate_toy_gwas.R",
   "hostRequirements": {
-    "cpus": 2,
-    "memory": "8gb"
+    "cpus": 4,
+    "memory": "16gb"
   }
 }
