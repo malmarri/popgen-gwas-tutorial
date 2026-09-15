@@ -12,10 +12,22 @@ involved, and no local software to install.
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/malmarri/popgen-gwas-tutorial)
 
 Click the badge, wait for the container to build (a couple of minutes the
-first time), then open RStudio in the browser tab that appears — no password
-required. **Make sure you're actually in that RStudio tab** (URL ending in
-`.app.github.dev`), not the Codespace's default VS Code/terminal view — the
-notebooks need R, which only runs inside RStudio Server.
+first time), then find RStudio: click the **PORTS** tab at the bottom of the
+VS Code window, find port **8787**, and click its 🌐 globe icon to open it in
+a new tab — no password required. (If it doesn't connect on the first try,
+wait 30 seconds and click the globe icon again; the container needs a moment
+to finish starting.) **Make sure you're actually in that RStudio tab** (URL
+ending in `.app.github.dev`), not the Codespace's default VS Code/terminal
+view — the notebooks need R, which only runs inside RStudio Server.
+
+**Step 0, before anything else:** in RStudio's **Files** pane (bottom-right),
+click **`popgen-gwas-tutorial.Rproj`** and confirm "Yes" to reopen as a
+project. RStudio does not do this automatically, and every notebook needs
+it — without it, R starts in your home folder instead of the project, and
+`data/`, `results/`, and the notebooks' own file paths won't resolve. You'll
+know it worked when the Console's top line shows the project name. If you
+forget this step, the fix is one line in the Console:
+`setwd("/workspaces/popgen-gwas-tutorial")`.
 
 The toy dataset is generated automatically on first build
 (`R/simulate_toy_gwas.R` runs via `postCreateCommand`); if you ever need to

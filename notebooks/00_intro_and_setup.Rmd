@@ -11,8 +11,9 @@ knitr::opts_chunk$set(echo = TRUE)
 proj_root <- if (file.exists("R/sim_utils.R")) normalizePath(".") else normalizePath("..")
 if (!file.exists(file.path(proj_root, "R", "sim_utils.R"))) {
   stop("Can't find the project root from ", getwd(), ".\n",
-       "In RStudio: Session > Set Working Directory > To Project Directory ",
-       "(or open popgen-gwas-tutorial.Rproj), then run this chunk again.")
+       "Fix: in the Console, run  setwd(\"/workspaces/popgen-gwas-tutorial\")  ",
+       "then run this chunk again. (Or: click popgen-gwas-tutorial.Rproj in the ",
+       "Files pane to reopen as a project, which sets this automatically from now on.)")
 }
 knitr::opts_knit$set(root.dir = proj_root)                     # applies when knitting
 if (!isTRUE(getOption("knitr.in.progress"))) setwd(proj_root)  # applies when running chunks
