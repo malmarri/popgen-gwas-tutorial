@@ -83,6 +83,37 @@ instructor/        answer-key truth tables — only created on request, gitignor
 Instructor answer key and build notes are kept in a separate private repo,
 not published here.
 
+## If something goes wrong (quick fixes)
+
+**"Permission denied" writing to `data/` or `results/`** — open a Terminal
+in RStudio (Tools > Terminal > New Terminal) and run:
+
+```bash
+chown -R rstudio:rstudio /workspaces/popgen-gwas-tutorial 2>/dev/null || sudo chown -R rstudio:rstudio /workspaces/popgen-gwas-tutorial
+```
+
+**`data/` is empty** — regenerate it. In RStudio's *Console* (bottom-left):
+
+```r
+source("R/simulate_toy_gwas.R")
+```
+
+Only run this in one place at a time — running it in a terminal and the
+Console simultaneously doubles the memory it needs.
+
+**"Can't find the project root"** — RStudio is pointed somewhere
+unexpected. Either open `popgen-gwas-tutorial.Rproj`, or use
+Session > Set Working Directory > To Project Directory, then re-run the
+chunk.
+
+**Notebook 05 says to run notebook 04 first** — it means it. The notebooks
+build on each other's output files; run them 00 → 05 in order.
+
+**You're in a terminal, not R** — if a prompt looks like
+`root@codespaces-xxxx:/workspaces/...#` that's a *shell*, not R. There,
+use `Rscript R/simulate_toy_gwas.R` (not R's `source()`, which is a
+different, unrelated bash builtin). R code belongs in RStudio's Console.
+
 ## Requirements knowledge-wise
 
 Basic command-line comfort and some R (reading a data frame, making a

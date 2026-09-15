@@ -13,9 +13,18 @@
   "containerEnv": {
     "DISABLE_AUTH": "true"
   },
-  "postCreateCommand": "Rscript R/simulate_toy_gwas.R",
+  // The container runs as root but RStudio Server logs students in as
+  // "rstudio" -- so hand the workspace (including the data/ this just
+  // generated) to that user, or notebook 01 hits "Permission denied" the
+  // first time it writes data/study_qc1. Never allowed to fail the build.
+  "postCreateCommand": "Rscript R/simulate_toy_gwas.R; chown -R rstudio:rstudio . 2>/dev/null || chown -R rstudio . 2>/dev/null || true",
+  // Back to 2/8gb: this is the size that already provisioned successfully
+  // for this account, and peak simulation memory is now only ~2GB (was
+  // ~2.75GB before the 5-chromosome reduction), so 8gb is ample. Asking for
+  // 16gb was untested for this account and burns the free Codespaces quota
+  // twice as fast per student.
   "hostRequirements": {
-    "cpus": 4,
-    "memory": "16gb"
+    "cpus": 2,
+    "memory": "8gb"
   }
 }
