@@ -3,6 +3,12 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  // CRITICAL: without this, Codespaces replaces the image's CMD (/init)
+  // with "sleep infinity" to keep the container alive -- which means
+  // rocker's s6 supervisor never runs, RStudio Server never starts, and
+  // port 8787 never opens. Symptom: the Codespace builds fine, you get a
+  // VS Code window and a terminal, but there is no RStudio anywhere.
+  "overrideCommand": false,
   "forwardPorts": [8787],
   "portsAttributes": {
     "8787": {
